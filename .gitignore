@@ -1,0 +1,38 @@
+# Python environments and caches
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+.aws/
+*.kubeconfig
+kubeconfig
+
+# Generated Kubernetes credentials
+**/secret.yaml
+**/secret.yml
+**/*-secret.yaml
+**/*-secret.yml
+
+# Local runtime data and logs
+*.log
+rabbitmq-data/
+
+# Editor and OS files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
