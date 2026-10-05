@@ -68,7 +68,7 @@ A single broker is a deliberate development simplification. Production availabil
 `-- README.md
 ```
 
-Keep the generated credential manifest out of Git. Application dependencies are pinned in each application's `requirements.txt`. Pin container images and the KEDA chart version as deployment is implemented.
+Keep the generated credential manifest out of Git. Application dependencies are pinned in each application's `requirements.txt`. Pin the KEDA chart version as deployment is implemented.
 
 ## Prerequisites
 
@@ -104,8 +104,6 @@ On 2026-10-04, the project owner manually validated the message flow with Rabbit
 
 Runtime variables can be supplied with `docker run --env-file`. The applications read environment variables; they do not load `.env` files themselves. For the Linux setup discussed here, `--network host` allows an application container to reach a broker exposed on the host's `127.0.0.1`; `RABBITMQ_PORT` must match the published or forwarded host port. With Docker's default networking, `localhost` refers to the application container itself.
 
-The current producer Dockerfile still specifies `app.py`, so its runtime command must be overridden with `python producer.py` until that Dockerfile is adjusted. The worker Dockerfile starts `worker.py`. Exclude `.env` files from the build context with a `.dockerignore` before using `COPY . /app`; `.gitignore` does not control Docker's build context.
-
 This validation covers successful publication and consumption. Broker restart persistence, interrupted-worker redelivery, and failure scenarios still need explicit integration validation. Message counts, timings, and the exact tool versions used in this run have not been recorded.
 
 ## Proposed scaling configuration
@@ -135,7 +133,6 @@ Choose the RabbitMQ scaler protocol explicitly and document it. AMQP and HTTP ca
 ### 2. Package and deploy
 
 - [x] Create Dockerfiles and pin application dependencies.
-- [ ] Adjust the producer Dockerfile entry point, exclude local credentials from build contexts, and pin base images.
 - [ ] Create namespace `keda-rabbitmq-autoscaling`.
 - [ ] Deploy RabbitMQ with readiness checks and persistent storage.
 - [ ] Create dedicated credentials locally and inject them through a Secret.
