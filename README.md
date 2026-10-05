@@ -2,7 +2,7 @@
 
 Event-driven autoscaling of Python workers on Kubernetes using RabbitMQ and KEDA.
 
-> **Status: planned / under development.** This README describes the intended architecture and implementation roadmap. Application code, manifests, scripts, and CI still need to be created and validated. The structure below is a target, not a list of existing files.
+> **Status: local message flow validated with Docker.** The Python producer and worker are implemented, and publication and consumption were manually validated against RabbitMQ with all three components running in Docker. Kubernetes deployment, KEDA autoscaling, automation scripts, and CI remain planned. The structure below is a target for the completed project.
 
 ## Why this project?
 
@@ -68,26 +68,27 @@ A single broker is a deliberate development simplification. Production availabil
 `-- README.md
 ```
 
-Keep the generated credential manifest out of Git. Pin application dependencies, container images, and the KEDA chart version when implementation begins.
+Keep the generated credential manifest out of Git. Application dependencies are pinned in each application's `requirements.txt`. Pin container images and the KEDA chart version as deployment is implemented.
 
 ## Prerequisites
 
-- Docker, Minikube, kubectl, and Helm.
-- Python for local application development.
-- Enough local resources for RabbitMQ, KEDA, and the maximum number of workers.
+- Docker for the local message flow.
+- Python for local application development outside containers.
+- Minikube, kubectl, and Helm for the upcoming Kubernetes and KEDA stages.
+- Enough local resources for RabbitMQ and the applications; later, KEDA and the maximum number of workers.
 
 Record the tool versions and Minikube resources used alongside each experiment. No AWS account or Terraform is required for the initial version.
 
 ## Application configuration contract
 
-These are proposed environment variables to implement consistently in the code and manifests:
+The applications use the following environment variables. Future Kubernetes manifests should follow the same contract:
 
-| Variable | Component | Proposed default / purpose |
+| Variable | Component | Default / purpose |
 | --- | --- | --- |
-| `RABBITMQ_HOST` | Both | RabbitMQ Service name |
+| `RABBITMQ_HOST` | Both | `localhost`; use a reachable broker address in Docker or a Service name in Kubernetes |
 | `RABBITMQ_PORT` | Both | `5672` |
-| `RABBITMQ_USERNAME` | Both | Dedicated project user |
-| `RABBITMQ_PASSWORD` | Both | Inject from a Kubernetes Secret |
+| `RABBITMQ_USERNAME` | Both | Required; RabbitMQ user |
+| `RABBITMQ_PASSWORD` | Both | Required; supply at runtime, later inject from a Kubernetes Secret |
 | `RABBITMQ_QUEUE` | Both | `tasks` |
 | `MESSAGE_COUNT` | Producer | `1000` |
 | `PROCESSING_TIME_SECONDS` | Worker | `2` |
@@ -95,7 +96,17 @@ These are proposed environment variables to implement consistently in the code a
 
 Use synthetic payloads with a message ID and publication timestamp. Never log credentials or connection URLs containing passwords.
 
-The worker should acknowledge only after successful processing, handle shutdown gracefully, and close its connection. Interrupted processing can cause redelivery; the example must not claim exactly-once delivery. A real consumer should make repeated processing safe through idempotency.
+The worker acknowledges only after successful processing, handles shutdown gracefully, and closes its connection. Interrupted processing can cause redelivery; the example does not guarantee exactly-once delivery. A real consumer should make repeated processing safe through idempotency.
+
+## Local validation
+
+On 2026-10-04, the project owner manually validated the message flow with RabbitMQ, the producer, and the worker running in Docker. The producer published messages and the worker consumed them successfully before introducing autoscaling.
+
+Runtime variables can be supplied with `docker run --env-file`. The applications read environment variables; they do not load `.env` files themselves. For the Linux setup discussed here, `--network host` allows an application container to reach a broker exposed on the host's `127.0.0.1`; `RABBITMQ_PORT` must match the published or forwarded host port. With Docker's default networking, `localhost` refers to the application container itself.
+
+The current producer Dockerfile still specifies `app.py`, so its runtime command must be overridden with `python producer.py` until that Dockerfile is adjusted. The worker Dockerfile starts `worker.py`. Exclude `.env` files from the build context with a `.dockerignore` before using `COPY . /app`; `.gitignore` does not control Docker's build context.
+
+This validation covers successful publication and consumption. Broker restart persistence, interrupted-worker redelivery, and failure scenarios still need explicit integration validation. Message counts, timings, and the exact tool versions used in this run have not been recorded.
 
 ## Proposed scaling configuration
 
@@ -116,14 +127,15 @@ Choose the RabbitMQ scaler protocol explicitly and document it. AMQP and HTTP ca
 
 ### 1. Build a working message flow
 
-- [ ] Implement a producer that declares the queue and publishes synthetic messages.
-- [ ] Implement a worker with manual acknowledgements and configurable processing time.
-- [ ] Use publisher confirms and detect publication failures.
-- [ ] Validate producer and one worker against RabbitMQ before adding autoscaling.
+- [x] Implement a producer that declares the queue and publishes synthetic messages.
+- [x] Implement a worker with manual acknowledgements and configurable processing time.
+- [x] Use publisher confirms and detect publication failures.
+- [x] Validate producer and one worker against RabbitMQ before adding autoscaling.
 
 ### 2. Package and deploy
 
-- [ ] Create Dockerfiles and pin dependencies.
+- [x] Create Dockerfiles and pin application dependencies.
+- [ ] Adjust the producer Dockerfile entry point, exclude local credentials from build contexts, and pin base images.
 - [ ] Create namespace `keda-rabbitmq-autoscaling`.
 - [ ] Deploy RabbitMQ with readiness checks and persistent storage.
 - [ ] Create dedicated credentials locally and inject them through a Secret.
@@ -190,7 +202,7 @@ Keep the queue empty before each comparable run, use the same payload count and 
 
 ## Results
 
-No results have been measured yet. Fill the table after running the scenarios:
+The local Docker message flow was manually validated, as described above. No quantitative baseline or autoscaling results have been recorded yet. Fill the table after running the scenarios:
 
 | Metric | Fixed worker | KEDA enabled |
 | --- | --- | --- |
