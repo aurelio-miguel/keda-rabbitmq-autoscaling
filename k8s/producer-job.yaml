@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+
+metadata:
+  name: producer-job
+  namespace: keda-rabbitmq-autoscaling
+
+spec:
+  template:
+    spec:
+      containers:
+      - name: producer-job
+        image: rabbitmq-producer:local
+        imagePullPolicy: IfNotPresent
+        command: ["python", "producer.py"]
+        env:
+          - name: RABBITMQ_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: rabbitmq-credentials
+                key: username
+          - name: RABBITMQ_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: rabbitmq-credentials
+                key: password
+          - name: RABBITMQ_HOST
+            value: rabbitmq
+      restartPolicy: Never
