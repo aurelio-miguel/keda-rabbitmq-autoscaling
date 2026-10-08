@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+
+metadata:
+  name: rabbitmq-scaledobject
+  namespace: keda-rabbitmq-autoscaling
+
+spec:
+  scaleTargetRef:
+    name: worker-deployment
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  pollingInterval: 5
+  cooldownPeriod: 60
+  triggers:
+  - type: rabbitmq
+    metadata:
+      protocol: amqp
+      queueName: tasks
+      mode: QueueLength
+      value: "100"
+    authenticationRef:
+      name: keda-trigger-auth-rabbitmq
