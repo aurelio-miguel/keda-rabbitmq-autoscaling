@@ -2,7 +2,7 @@
 
 Event-driven autoscaling of Python workers on Kubernetes using RabbitMQ and KEDA.
 
-> **Status: end-to-end autoscaling manually validated on Kind.** RabbitMQ, the producer Job, and the worker Deployment are deployed. KEDA activated workers from zero, scaled up to five replicas, and returned to zero after consumption. Automation scripts, quantitative measurements, and CI remain planned.
+> **Status: end-to-end autoscaling manually validated on Kind.** RabbitMQ, the producer Job, and the worker Deployment are deployed. KEDA activated workers from zero, scaled up to five replicas, and returned to zero after consumption. Setup, load generation, and cleanup have been validated on the running cluster. CI is implemented; its first GitHub Actions run, clean-setup validation, and repeated measurements remain pending.
 
 ## Why this project?
 
@@ -38,7 +38,7 @@ A single broker is a deliberate development simplification. Production availabil
 
 ## Planned repository structure
 
-The application files and Kubernetes manifests below exist. Scripts, results documentation, the architecture image, and CI are still planned.
+The application files, Kubernetes manifests, all three scripts, `docs/results.md`, application unit tests, and the CI workflow below exist. The architecture image is still planned.
 
 ```text
 .
@@ -65,6 +65,8 @@ The application files and Kubernetes manifests below exist. Scripts, results doc
 |-- docs/
 |   |-- architecture.png
 |   `-- results.md
+|-- tests/
+|   `-- test_applications.py
 |-- .github/workflows/build.yml
 |-- .gitignore
 `-- README.md
@@ -147,10 +149,10 @@ This validates activation, scale-out, and return to zero for the initial scenari
 - [x] Create Dockerfiles and pin application dependencies.
 - [x] Create namespace `keda-rabbitmq-autoscaling`.
 - [x] Deploy RabbitMQ with persistent storage.
-- [ ] Add RabbitMQ readiness checks.
+- [x] Add RabbitMQ readiness checks.
 - [x] Create dedicated credentials locally and inject them through a Secret.
 - [x] Deploy one worker and validate Service connectivity.
-- [ ] Define resource requests and limits for broker and applications.
+- [x] Define resource requests and limits for broker and applications.
 
 ### 3. Enable autoscaling
 
@@ -164,15 +166,20 @@ This validates activation, scale-out, and return to zero for the initial scenari
 
 ### 4. Make the experiment reproducible
 
-- [ ] Implement `setup.sh` with context validation and clear errors.
-- [ ] Implement `generate-load.sh` to create a fresh producer Job for each run.
-- [ ] Implement `cleanup.sh` scoped to this project's resources.
+- [x] Implement `setup.sh` with context validation and clear errors.
+- [x] Validate `setup.sh` against the running cluster.
+- [ ] Validate `setup.sh` from a clean setup.
+- [x] Implement `generate-load.sh` to create a fresh producer Job for each run.
+- [x] Validate the load-generation script against the running cluster.
+- [x] Implement `cleanup.sh` scoped to this project's resources.
+- [x] Validate `cleanup.sh` against the running cluster.
 - [ ] Replace this roadmap-only setup section with tested execution commands.
 - [ ] Record the exact software versions and experiment results.
 
 ### 5. Add CI and presentation
 
-- [ ] Add CI for Python checks and Docker builds without requiring a live cluster.
+- [x] Add CI for Python checks and Docker builds without requiring a live cluster.
+- [ ] Verify the first GitHub Actions run.
 - [ ] Optionally publish versioned images to GHCR.
 - [ ] Add an architecture image and a short demonstration.
 - [ ] Document limitations and publish an article explaining the observations.
@@ -181,9 +188,94 @@ This validates activation, scale-out, and return to zero for the initial scenari
 
 Once implemented, setup should validate the selected cluster context, install KEDA, build/load application images, and deploy the project. Kind is the currently validated environment; Minikube support still needs testing. Load generation should submit a producer Job with a configurable message count. Cleanup should remove application resources without deleting an unrelated cluster or shared KEDA installation.
 
-**These scripts do not exist yet.** Publish executable quick-start instructions only after testing them from a clean setup.
+**All three scripts are implemented and validated on the running cluster.** The project owner confirmed cleanup followed by setup and another test worked successfully. A complete quick-start still needs testing from an empty cluster with fresh storage.
 
 For the validated Kind cluster, application images must be loaded into `freekubelab` with `kind load docker-image IMAGE:TAG --name freekubelab`. The application manifests use `imagePullPolicy: IfNotPresent`. A locally built Docker image is not automatically available to Kubernetes. For a future Minikube run, load images into the selected Minikube profile instead.
+
+## Prepare the Kind environment
+
+`scripts/setup.sh` prepares an existing Kind cluster using Docker, Kind, kubectl, Helm, and Python 3. From the repository root:
+
+```bash
+./scripts/setup.sh --help
+./scripts/setup.sh --cluster freekubelab --keda-version 2.21.0
+```
+
+It explicitly targets `kind-freekubelab` without changing the current kubectl context. It checks access, applies the namespace, preserves existing RabbitMQ credentials, installs KEDA if absent, builds and loads both application images, deploys RabbitMQ and the worker, and applies the KEDA resources. It waits for the broker rollout and ScaledObject readiness. It does not publish messages or create a cluster.
+
+The chart version defaults to `2.21.0`. If an existing Helm release named `keda` uses another version, setup stops rather than upgrading it. Inspect the installed release with `helm --kube-context kind-freekubelab list -n keda` and pass that chart version explicitly to reuse it. Existing autoscaling pause annotations are preserved; inspect them before a load test.
+
+If `rabbitmq-credentials` already exists, its username and password are reused. A missing `rabbitmq` connection key is added for the in-cluster AMQP Service. If the Secret does not exist, supply credentials through exported environment variables:
+
+```bash
+read -rp 'RabbitMQ username: ' RABBITMQ_USERNAME
+read -rsp 'RabbitMQ password: ' RABBITMQ_PASSWORD
+export RABBITMQ_USERNAME RABBITMQ_PASSWORD
+./scripts/setup.sh --cluster freekubelab --keda-version 2.21.0
+unset RABBITMQ_PASSWORD
+```
+
+The script does not load `.env` files. If reusing broker storage, use the credentials already configured in that broker; creating a Secret is not a password-rotation operation. Application build contexts exclude local `.env` files through `.dockerignore`. Repeated setup rebuilds images and requests a worker rollout to use the rebuilt local tag, so run it between experiments after the queue has drained.
+
+The setup script has been checked locally with simulated commands covering new and existing Secrets, missing connection keys, KEDA version checks, image loading, and failure paths. The project owner also confirmed successful execution against the running cluster. Execution from a clean setup remains to be validated.
+
+## Generate a new load
+
+With the application deployed and its image available to cluster nodes, run from the repository root:
+
+```bash
+kubectl config current-context
+./scripts/generate-load.sh 1000 --dry-run
+./scripts/generate-load.sh 1000
+```
+
+The script requires Bash, Python 3, and kubectl. It uses `k8s/producer-job.yaml` as its template, preserving the image, command, resources, and Secret references. Each invocation creates a new Job named `producer-load-` followed by a Kubernetes-generated suffix, leaving existing Jobs intact. `MESSAGE_COUNT` is overridden for that Job; the source manifest is not changed.
+
+The optional count defaults to the shell's `MESSAGE_COUNT`, or `1000` when unset, and must be a positive integer. The script prints the selected context, namespace, and message count. `--dry-run` prints the generated JSON without creating a Job, though kubectl may still contact the API server for discovery. Both preview and submission use the context selected at script startup.
+
+After creation, the script prints commands to follow logs and inspect completion. Job creation alone does not mean publication succeeded; check the logs and Job status. Automatic retries are disabled with `backoffLimit: 0` and `restartPolicy: Never` to avoid repeating a partially published workload. Completed Jobs are retained for inspection.
+
+Local checks covered manifest generation and simulated kubectl submission. The project owner also validated the script against the running Kind cluster; `producer-load-bqxgd` confirmed publication of 500 messages. See the [experiment record](docs/results.md) for timing evidence and remaining checks.
+
+## Clean up application resources
+
+Run from the repository root. Preview the plan first:
+
+```bash
+./scripts/cleanup.sh --cluster freekubelab --dry-run
+./scripts/cleanup.sh --cluster freekubelab
+```
+
+The script explicitly targets `kind-freekubelab` and namespace `keda-rabbitmq-autoscaling`. It removes the fixed producer Job and generated Jobs matching both the `producer-load-` prefix and the load-generator label, then removes the ScaledObject, TriggerAuthentication, worker Deployment, RabbitMQ StatefulSet, and RabbitMQ Service. The HPA owned by the ScaledObject is removed through Kubernetes garbage collection. Jobs without the script's matching name and label are retained.
+
+The cluster, KEDA installation, namespace, PVC `data-rabbitmq-0`, and Secret `rabbitmq-credentials` remain. A later setup can reuse the broker data and credentials. Cleanup stops running workloads; collect results and logs before running it.
+
+To also delete the broker PVC and credentials, explicitly opt in:
+
+```bash
+./scripts/cleanup.sh --cluster freekubelab --delete-data --dry-run
+./scripts/cleanup.sh --cluster freekubelab --delete-data
+```
+
+Deleting the PVC can permanently remove persisted messages and broker configuration, depending on the volume reclaim policy. With a `Retain` policy, the underlying volume is retained and requires separate administration. The script does not delete PersistentVolumes directly or delete the namespace.
+
+Cleanup requires Bash, kubectl, and Python 3 and works from any directory. Missing named resources are ignored; an absent application namespace is a successful no-op. It stops on other API errors. Local checks covered scope, deletion order, previews, retained data, absent resources, and failure handling using simulated kubectl commands. The project owner also validated cleanup and successful recreation with setup on the running cluster.
+
+## Continuous integration
+
+`.github/workflows/build.yml` runs on pushes, pull requests, and manual dispatch. It checks Python syntax, runs eight broker-free unit tests on Python 3.9 (matching the current Docker base) and 3.12, and checks Bash syntax for all scripts. After these checks pass, separate jobs build the producer and worker images and check Python syntax inside each image. Images are built for validation without being published or deployed.
+
+The unit tests cover persistent confirmed publication, unroutable and rejected messages, invalid configuration, credential-safe error logging, acknowledgement after processing, heartbeat servicing, SIGTERM interruption, and malformed payload rejection. Broker connections are simulated. Actual broker persistence, redelivery, and Kubernetes autoscaling still require integration experiments.
+
+Run the same application tests locally with an activated Python environment:
+
+```bash
+python -m pip install -r apps/producer/requirements.txt -r apps/worker/requirements.txt
+python -m unittest discover -s tests -v
+bash -n scripts/setup.sh scripts/generate-load.sh scripts/cleanup.sh
+```
+
+The first GitHub Actions execution remains to be verified after these files are committed and pushed. No cluster credentials or RabbitMQ secrets are needed by this workflow.
 
 ## Observing the experiment
 
@@ -214,19 +306,20 @@ Keep the queue empty before each comparable run, use the same payload count and 
 
 ## Results
 
-The local Docker flow and the initial Kind autoscaling cycle were manually validated. The observed KEDA peak was five ready replicas, followed by a return to zero after consumption. A fixed-worker baseline and quantitative timings have not been recorded.
+Two timed runs each confirmed 500 publications on Kind. The single-worker baseline finished approximately 16 min 48 s after script invocation; the KEDA run finished in approximately 4 min 2 s, reached five ready workers, and returned to zero. The observed elapsed-time ratio was approximately 4.17, with a 76.0% reduction in elapsed time. These are first-round manual observations; runtime configuration equality and repeated measurements are still needed. See [docs/results.md](docs/results.md) for timestamps, evidence, and measurement limits.
 
 | Metric | Fixed worker | KEDA enabled |
 | --- | --- | --- |
-| Messages published | TBD | TBD |
-| Processing time per message | TBD | TBD |
-| Peak replicas | TBD | 5 (observed) |
-| Queue drain time | TBD | TBD |
-| Scale-from-zero delay | N/A | TBD |
-| Return-to-zero delay | N/A | TBD |
-| Redeliveries / failures | TBD | TBD |
+| Messages published | 500 confirmed | 500 confirmed |
+| Processing time per message | Default 2 s; runtime value unconfirmed | Default 2 s; runtime value unconfirmed |
+| Peak replicas | 1, confirmed by project owner | 5, recorded in deployment watch |
+| Start to reported queue completion | Approx. 16 min 48 s | Approx. 4 min 2 s |
+| Start to first ready worker | Already ready | Approx. 2 s |
+| Reported completion to zero workers | N/A | Approx. 24 s |
+| Errors / restarts | None observed, reported by project owner | TBD |
+| Redeliveries | Not measured | TBD |
 
-The current application defaults are 1000 messages and 2 seconds of processing per message. These are configuration defaults, not measured results or a verified message count for the recorded run.
+The script defaults to 1000 messages when no count is supplied; both timed runs explicitly requested 500. The application default processing delay is 2 seconds per message, rather than a measured processing duration. The interval from reported completion to zero is an observation, not a measurement of the configured 60-second cooldown: AMQP ready-message activity can stop before unacknowledged processing finishes.
 
 Queue drain time should account for both ready and unacknowledged messages. Do not interpret an empty ready queue as proof that all processing has finished.
 

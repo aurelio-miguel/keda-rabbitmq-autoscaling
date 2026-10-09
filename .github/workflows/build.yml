@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Python ${{ matrix.python }} and shell checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install application dependencies
+        run: python -m pip install -r apps/producer/requirements.txt -r apps/worker/requirements.txt
+      - name: Check Python syntax
+        run: python -m compileall -q apps tests
+      - name: Run unit tests without a broker
+        run: python -m unittest discover -s tests -v
+      - name: Check Bash syntax
+        run: bash -n scripts/setup.sh scripts/generate-load.sh scripts/cleanup.sh
+
+  images:
+    name: Build ${{ matrix.application }} image
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        application: [producer, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build --tag rabbitmq-${{ matrix.application }}:ci apps/${{ matrix.application }}
+      - name: Check Python syntax inside the image
+        run: docker run --rm --entrypoint python rabbitmq-${{ matrix.application }}:ci -m py_compile /app/${{ matrix.application }}.py
