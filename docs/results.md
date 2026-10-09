@@ -1,5 +1,15 @@
 # Experiment results
 
+[Back to README](../README.md) · [Experiment procedure](experiments.md) · [Architecture](architecture.md)
+
+## Summary and evidence scope
+
+Two manual 500-message runs were recorded on Kind. The fixed-worker run took approximately 1008 seconds; the KEDA run took approximately 242 seconds from script invocation to reported queue completion, with five ready workers observed at peak. KEDA also returned the Deployment to zero.
+
+The observed elapsed-time reduction is `(1008 - 242) / 1008 × 100 ≈ 76.0%`, and the elapsed-time ratio is `1008 / 242 ≈ 4.17`. These are descriptive calculations for one pair of runs. They do not establish repeatability, a throughput benchmark, or resource-cost savings.
+
+Evidence below consists of producer logs, deployment-watch timestamps, and operator reports; raw logs are not included in this document. Exact software/image versions and runtime configuration equality were not captured. The baseline completion report included Ready and Unacked both zero; the KEDA completion report did not provide these counts separately. No new cluster experiment was performed during this documentation revision.
+
 ## First single-worker baseline
 
 Recorded from the project owner's terminal output and completion report. Local timestamps use America/Araguaina (UTC−03:00).
