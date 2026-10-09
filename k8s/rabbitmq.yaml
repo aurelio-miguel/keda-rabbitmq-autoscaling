@@ -41,6 +41,20 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /var/lib/rabbitmq
+        readinessProbe:
+          tcpSocket:
+            port: amqp
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
 
   volumeClaimTemplates:
   - metadata:
