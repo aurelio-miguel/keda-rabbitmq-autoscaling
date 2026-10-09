@@ -26,4 +26,11 @@ spec:
                 key: password
           - name: RABBITMQ_HOST
             value: rabbitmq
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "500m"
+            memory: "128Mi"
       restartPolicy: Never
